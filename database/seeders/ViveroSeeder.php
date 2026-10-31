@@ -2,23 +2,36 @@
 
 namespace Database\Seeders;
 
+use App\Models\Expense;
 use App\Models\InventoryBalance;
 use App\Models\InventoryMovement;
+use App\Models\Location;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\Setting;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
+use LogicException;
 
 class ViveroSeeder extends Seeder
 {
     public function run(): void
     {
-        DB::transaction(function () {
-            Setting::firstOrCreate(['id' => 1], ['business_name' => 'Mi vivero', 'hourly_rate' => 10000, 'monthly_fixed_costs' => 0, 'currency' => 'COP', 'timezone' => 'America/Bogota']);
-            $balance = InventoryBalance::firstOrCreate(['id' => 1], ['unclassified' => 250, 'growing' => 0, 'mother' => 0, 'ready' => 0]);
-            if ($balance->wasRecentlyCreated) {
-                InventoryMovement::create(['type' => 'initial', 'to_bucket' => 'unclassified', 'quantity' => 250, 'note' => 'Inventario inicial informado: clasificar antes de confirmar ventas.']);
+        $this->call(BusinessSeeder::class);
+        DB::transaction(function (): void {
+            $settings = Setting::query()->lockForUpdate()->findOrFail(1);
+            if (Product::whereKey('individual')->exists() && Product::whereKey('mini-jardin')->exists()) {
+                return;
             }
+            $hasStock = InventoryBalance::query()->where(fn ($query) => $query->where('unclassified', '>', 0)->orWhere('growing', '>', 0)->orWhere('mother', '>', 0)->orWhere('ready', '>', 0))->exists();
+            if ($settings->currency !== 'COP' || Product::exists() || Order::exists() || Expense::exists() || InventoryMovement::exists() || $hasStock) {
+                throw new LogicException('La carga opcional de suculentas requiere un negocio vacío y moneda COP. No se modificaron sus registros.');
+            }
+            $settings->update(['business_type' => 'Cultivo y venta de plantas', 'hourly_rate' => 10000, 'inventory_unit' => 'Plantas', 'inventory_unit_singular' => 'Planta', 'bucket_labels' => ['unclassified' => 'Sin clasificar', 'growing' => 'En crecimiento', 'mother' => 'Reproducción', 'ready' => 'Listas para vender']]);
+            $location = Location::query()->where('active', true)->orderBy('id')->firstOrFail();
+            $balance = InventoryBalance::query()->where('location_id', $location->id)->lockForUpdate()->firstOrFail();
+            $balance->update(['unclassified' => 250]);
+            InventoryMovement::create(['location_id' => $location->id, 'type' => 'initial', 'to_bucket' => 'unclassified', 'quantity' => 250, 'note' => 'Carga opcional: 250 plantas sin clasificar y dos productos de suculentas.']);
             Product::firstOrCreate(['id' => 'individual'], [
                 'name' => 'Suculenta individual', 'plants_per_unit' => 1, 'unit_cost' => 3300, 'base_price' => 6000, 'minutes' => 2,
                 'components' => [['name' => 'Suculenta con cultivo y sustrato', 'quantity' => 1, 'unitCost' => 1000], ['name' => 'Matera de barro', 'quantity' => 1, 'unitCost' => 1800], ['name' => 'Decoración, tarjeta y empaque', 'quantity' => 1, 'unitCost' => 500]],

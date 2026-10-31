@@ -5,11 +5,11 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 
-#[Fillable(['user_id', 'date', 'category', 'amount', 'note'])]
+#[Fillable(['location_id', 'user_id', 'date', 'category', 'amount', 'note'])]
 class Expense extends Model
 {
     protected function casts(): array
     {
-        return ['amount' => 'integer', 'date' => 'date:Y-m-d'];
+        return ['location_id' => 'integer', 'amount' => 'integer', 'date' => 'date:Y-m-d'];
     }
 }

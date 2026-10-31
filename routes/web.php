@@ -8,4 +8,4 @@ Route::prefix('api')->group(function (): void {
     Route::post('/logout', [AuthController::class, 'logout'])->middleware(['auth', 'active'])->name('logout');
 });
 
-Route::get('/', fn () => response()->json(['name' => 'Mi vivero API', 'frontend' => 'Angular', 'health' => '/api/health']));
+Route::get('/', fn () => response()->json(['name' => config('app.name').' API', 'frontend' => 'Angular', 'health' => '/api/health']));

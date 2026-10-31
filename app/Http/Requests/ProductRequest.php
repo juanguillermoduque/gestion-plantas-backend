@@ -6,6 +6,13 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class ProductRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        if (! $this->has('stockUnitsPerUnit') && $this->has('plantsPerUnit')) {
+            $this->merge(['stockUnitsPerUnit' => $this->input('plantsPerUnit')]);
+        }
+    }
+
     public function authorize(): bool
     {
         return true;
@@ -17,7 +24,8 @@ class ProductRequest extends FormRequest
         return [
             'id' => ['sometimes', 'nullable', 'string', 'max:80', 'regex:/^[a-zA-Z0-9_-]+$/'],
             'name' => ['required', 'string', 'max:100'],
-            'plantsPerUnit' => ['required', 'integer', 'min:1', 'max:100'],
+            'stockUnitsPerUnit' => ['required', 'integer', 'min:0', 'max:100'],
+            'plantsPerUnit' => ['sometimes', 'integer', 'min:0', 'max:100'],
             'basePrice' => ['required', 'integer', 'min:1', 'max:1000000000'],
             'minutes' => ['required', 'numeric', 'min:0', 'max:600', 'decimal:0,2'],
             'components' => ['required', 'array', 'min:1', 'max:30'],

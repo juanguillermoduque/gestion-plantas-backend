@@ -13,27 +13,29 @@ use Illuminate\Support\Facades\DB;
 
 class OrderService
 {
-    public function __construct(private readonly InventoryService $inventory, private readonly QuoteService $quotes) {}
+    public function __construct(private readonly InventoryService $inventory, private readonly QuoteService $quotes, private readonly LocationService $locations) {}
 
     /** @param array<string, mixed> $input */
     public function create(array $input, User $user): Order
     {
         return DB::transaction(function () use ($input, $user): Order {
-            $balance = $this->inventory->lock();
+            $location = $this->locations->resolve($input['locationId'] ?? null, true, true);
+            $balance = $this->inventory->lock($location->id);
+            $settings = Setting::query()->lockForUpdate()->findOrFail(1);
             $products = Product::all()->map(fn (Product $product): array => ApiView::product($product))->all();
-            $quote = $this->quotes->calculate($input, $products, Setting::findOrFail(1)->hourly_rate);
+            $quote = $this->quotes->calculate($input, $products, $settings->hourly_rate, ['currency' => $settings->currency, 'inventoryUnit' => $settings->inventory_unit, 'inventoryUnitSingular' => $settings->inventory_unit_singular]);
             $status = $input['status'] ?? 'quote';
-            if ($status === 'confirmed' && $quote['plantsNeeded'] > $balance->ready - $this->inventory->reserved()) {
-                throw new BusinessRule('No hay suficientes plantas listas y libres para confirmar este pedido. Puedes guardarlo como cotización.');
+            if ($status === 'confirmed' && $quote['stockUnitsNeeded'] > $balance->ready - $this->inventory->reserved($location->id)) {
+                throw new BusinessRule('No hay suficientes existencias listas y libres en esta sede para confirmar el pedido. Puedes guardarlo como cotización.');
             }
             $paid = (int) ($input['paid'] ?? 0);
             if ($paid > $quote['total']) {
                 throw new BusinessRule('El anticipo no puede superar el total del pedido.', 400);
             }
-            $order = Order::create(['user_id' => $user->id, 'customer_name' => trim($input['customerName']), 'phone' => $input['phone'] ?? '', 'location' => $input['location'] ?? '', 'due_date' => $input['dueDate'], 'source' => $input['source'] ?? '', 'status' => $status, 'notes' => $input['notes'] ?? '', 'totals' => $quote, 'plants_needed' => $quote['plantsNeeded']]);
+            $order = Order::create(['location_id' => $location->id, 'user_id' => $user->id, 'customer_name' => trim($input['customerName']), 'phone' => $input['phone'] ?? '', 'location' => $input['location'] ?? '', 'due_date' => $input['dueDate'], 'source' => $input['source'] ?? '', 'status' => $status, 'notes' => $input['notes'] ?? '', 'totals' => $quote, 'plants_needed' => $quote['stockUnitsNeeded']]);
             $order->update(['code' => 'PED-'.str_pad((string) $order->id, 5, '0', STR_PAD_LEFT)]);
             if ($paid > 0) {
-                Payment::create(['order_id' => $order->id, 'user_id' => $user->id, 'amount' => $paid, 'date' => now('America/Bogota')->toDateString(), 'note' => 'Anticipo inicial']);
+                Payment::create(['order_id' => $order->id, 'user_id' => $user->id, 'amount' => $paid, 'date' => now($settings->timezone)->toDateString(), 'note' => 'Anticipo inicial']);
             }
 
             return $order->load('payments');
@@ -43,7 +45,9 @@ class OrderService
     public function changeStatus(int $id, string $status, User $user): Order
     {
         return DB::transaction(function () use ($id, $status, $user): Order {
-            $balance = $this->inventory->lock();
+            $existing = Order::findOrFail($id);
+            $location = $this->locations->resolve($existing->location_id, false, true);
+            $balance = $this->inventory->lock($location->id);
             $order = Order::query()->lockForUpdate()->findOrFail($id);
             if ($order->status === $status) {
                 return $order->load('payments');
@@ -55,17 +59,19 @@ class OrderService
             if ($status === 'cancelled' && (int) $order->payments()->sum('amount') !== 0) {
                 throw new BusinessRule('Registra primero la devolución de los pagos antes de cancelar el pedido.');
             }
-            if ($status === 'confirmed' && $order->plants_needed > $balance->ready - $this->inventory->reserved($order->id)) {
-                throw new BusinessRule('No hay suficientes plantas listas y libres para confirmar este pedido.');
+            if ($status === 'confirmed' && $order->plants_needed > $balance->ready - $this->inventory->reserved($location->id, $order->id)) {
+                throw new BusinessRule('No hay suficientes existencias listas y libres en la sede del pedido.');
             }
             if ($status === 'delivered') {
                 if ($order->plants_needed > $balance->ready) {
-                    throw new BusinessRule('El inventario no alcanza para registrar esta entrega.');
+                    throw new BusinessRule('El inventario de la sede no alcanza para registrar esta entrega.');
                 }
-                $balance->ready -= $order->plants_needed;
-                $balance->save();
+                if ($order->plants_needed > 0) {
+                    $balance->ready -= $order->plants_needed;
+                    $balance->save();
+                    InventoryMovement::create(['location_id' => $location->id, 'user_id' => $user->id, 'type' => 'delivery', 'from_bucket' => 'ready', 'quantity' => $order->plants_needed, 'note' => 'Entrega '.$order->code]);
+                }
                 $order->delivered_at = now();
-                InventoryMovement::create(['user_id' => $user->id, 'type' => 'delivery', 'from_bucket' => 'ready', 'quantity' => $order->plants_needed, 'note' => 'Entrega '.$order->code]);
             }
             $order->status = $status;
             $order->save();

@@ -14,6 +14,8 @@ Route::middleware(['auth:sanctum', 'active'])->group(function (): void {
     Route::post('/orders/{order}/payments', [ApiController::class, 'payment'])->whereNumber('order')->name('api.orders.payment');
     Route::post('/expenses', [ApiController::class, 'createExpense'])->name('api.expenses.create');
     Route::middleware('admin')->group(function (): void {
+        Route::post('/locations', [ApiController::class, 'createLocation'])->name('api.locations.create');
+        Route::match(['put', 'patch'], '/locations/{location}', [ApiController::class, 'updateLocation'])->whereNumber('location')->name('api.locations.update');
         Route::post('/products', [ApiController::class, 'createProduct'])->name('api.products.create');
         Route::put('/products/{product}', [ApiController::class, 'updateProduct'])->name('api.products.update');
         Route::put('/settings', [ApiController::class, 'settings'])->name('api.settings');

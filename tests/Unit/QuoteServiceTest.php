@@ -20,13 +20,13 @@ class QuoteServiceTest extends TestCase
     public function test_calculates_quantity_tiers_and_three_plants_per_garden(): void
     {
         $service = new QuoteService;
-        $individual = $service->calculate(['items' => [['productId' => 'individual', 'quantity' => 50]]], $this->products());
+        $individual = $service->calculate(['items' => [['productId' => 'individual', 'quantity' => 50]]], $this->products(), 10000);
         $this->assertSame(250000, $individual['total']);
         $this->assertSame(165000, $individual['materials']);
         $this->assertSame(16667, $individual['labor']);
         $this->assertSame(68333, $individual['contribution']);
         $this->assertSame(50, $individual['plantsNeeded']);
-        $garden = $service->calculate(['items' => [['productId' => 'mini-jardin', 'quantity' => 50]]], $this->products());
+        $garden = $service->calculate(['items' => [['productId' => 'mini-jardin', 'quantity' => 50]]], $this->products(), 10000);
         $this->assertSame(1100000, $garden['total']);
         $this->assertSame(575000, $garden['materials']);
         $this->assertSame(508333, $garden['contribution']);
@@ -35,13 +35,13 @@ class QuoteServiceTest extends TestCase
 
     public function test_rounds_labor_once_for_the_whole_order(): void
     {
-        $quote = (new QuoteService)->calculate(['items' => [['productId' => 'individual', 'quantity' => 1], ['productId' => 'mini-jardin', 'quantity' => 1]]], $this->products());
+        $quote = (new QuoteService)->calculate(['items' => [['productId' => 'individual', 'quantity' => 1], ['productId' => 'mini-jardin', 'quantity' => 1]]], $this->products(), 10000);
         $this->assertSame(667, $quote['labor']);
     }
 
     public function test_accounts_for_negotiated_prices_delivery_discount_and_order_costs(): void
     {
-        $quote = (new QuoteService)->calculate(['items' => [['productId' => 'individual', 'quantity' => 40], ['productId' => 'mini-jardin', 'quantity' => 2, 'unitPrice' => 24000]], 'deliveryCharged' => 12000, 'deliveryCost' => 15000, 'adCost' => 10000, 'otherCost' => 5000, 'discount' => 8000], $this->products());
+        $quote = (new QuoteService)->calculate(['items' => [['productId' => 'individual', 'quantity' => 40], ['productId' => 'mini-jardin', 'quantity' => 2, 'unitPrice' => 24000]], 'deliveryCharged' => 12000, 'deliveryCost' => 15000, 'adCost' => 10000, 'otherCost' => 5000, 'discount' => 8000], $this->products(), 10000);
         $this->assertSame(248000, $quote['subtotal']);
         $this->assertSame(252000, $quote['total']);
         $this->assertSame(155000, $quote['materials']);

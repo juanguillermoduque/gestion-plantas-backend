@@ -14,6 +14,6 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        $this->call(ViveroSeeder::class);
+        $this->call(BusinessSeeder::class);
     }
 }

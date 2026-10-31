@@ -3,7 +3,7 @@ services:
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_DATABASE:-gestion_plantas}
+      POSTGRES_DB: ${DB_DATABASE:-gestion_negocio}
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Configura POSTGRES_ADMIN_PASSWORD en .env}
       APP_DB_USER: ${DB_USERNAME:-gestion_app}
@@ -27,21 +27,20 @@ services:
       db:
         condition: service_healthy
     environment:
-      APP_NAME: Gestion de Plantas
+      APP_NAME: ${APP_NAME:-Gestion de negocio}
       APP_ENV: production
       APP_KEY: ${APP_KEY:-}
       APP_DEBUG: "false"
       APP_URL: ${APP_URL:-http://localhost:8080}
-      APP_LOCALE: es
-      APP_FALLBACK_LOCALE: es
-      APP_TIMEZONE: America/Bogota
+      APP_LOCALE: ${APP_LOCALE:-es}
+      APP_FALLBACK_LOCALE: ${APP_FALLBACK_LOCALE:-en}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-*}
       LOG_CHANNEL: stderr
       LOG_LEVEL: warning
       DB_CONNECTION: pgsql
       DB_HOST: db
       DB_PORT: "5432"
-      DB_DATABASE: ${DB_DATABASE:-gestion_plantas}
+      DB_DATABASE: ${DB_DATABASE:-gestion_negocio}
       DB_USERNAME: ${DB_USERNAME:-gestion_app}
       DB_PASSWORD: ${DB_PASSWORD:?Configura DB_PASSWORD en .env}
       SESSION_DRIVER: database

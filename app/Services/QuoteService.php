@@ -7,7 +7,7 @@ use App\Exceptions\BusinessRule;
 class QuoteService
 {
     /** @param array<string, mixed> $body @param array<int, array<string, mixed>> $products @return array<string, mixed> */
-    public function calculate(array $body, array $products, int $defaultHourlyRate = 10000): array
+    public function calculate(array $body, array $products, int $defaultHourlyRate = 0, array $context = []): array
     {
         $rows = $body['items'] ?? [];
         if (! is_array($rows) || count($rows) < 1 || count($rows) > 30) {
@@ -40,15 +40,16 @@ class QuoteService
                     $tierPrice = $tier['price'];
                 }
             }
-            $items[] = ['productId' => $id, 'productName' => $product['name'], 'quantity' => $quantity, 'unitPrice' => $this->integer($row['unitPrice'] ?? $tierPrice, 'Precio', 1), 'unitCost' => $product['unitCost'], 'plantsPerUnit' => $product['plantsPerUnit'], 'minutes' => $product['minutes']];
+            $stockUnitsPerUnit = $product['stockUnitsPerUnit'] ?? $product['plantsPerUnit'];
+            $items[] = ['productId' => $id, 'productName' => $product['name'], 'quantity' => $quantity, 'unitPrice' => $this->integer($row['unitPrice'] ?? $tierPrice, 'Precio', 1), 'unitCost' => $product['unitCost'], 'stockUnitsPerUnit' => $stockUnitsPerUnit, 'plantsPerUnit' => $stockUnitsPerUnit, 'minutes' => $product['minutes']];
         }
         $hourlyRate = $this->integer($body['hourlyRate'] ?? $defaultHourlyRate, 'Valor de la hora', 0, 1000000);
-        $subtotal = $materials = $plantsNeeded = 0;
+        $subtotal = $materials = $stockUnitsNeeded = 0;
         $assemblyMinutes = 0.0;
         foreach ($items as $item) {
             $subtotal += $item['quantity'] * $item['unitPrice'];
             $materials += $item['quantity'] * $item['unitCost'];
-            $plantsNeeded += $item['quantity'] * $item['plantsPerUnit'];
+            $stockUnitsNeeded += $item['quantity'] * $item['stockUnitsPerUnit'];
             $assemblyMinutes += $item['quantity'] * $item['minutes'];
         }
         $labor = (int) round($assemblyMinutes * $hourlyRate / 60);
@@ -64,7 +65,7 @@ class QuoteService
         $costTotal = $materials + $labor + $deliveryCost + $adCost + $otherCost;
         $contribution = $total - $costTotal;
 
-        return compact('items', 'hourlyRate', 'subtotal', 'materials', 'labor', 'assemblyMinutes', 'plantsNeeded', 'deliveryCost', 'deliveryCharged', 'adCost', 'otherCost', 'discount', 'total', 'costTotal', 'contribution') + ['contributionMargin' => $total > 0 ? $contribution / $total : 0];
+        return compact('items', 'hourlyRate', 'subtotal', 'materials', 'labor', 'assemblyMinutes', 'stockUnitsNeeded', 'deliveryCost', 'deliveryCharged', 'adCost', 'otherCost', 'discount', 'total', 'costTotal', 'contribution') + ['plantsNeeded' => $stockUnitsNeeded, 'contributionMargin' => $total > 0 ? $contribution / $total : 0, 'moneyPrecision' => 0] + $context;
     }
 
     private function integer(mixed $value, string $label, int $min = 0, int $max = 1000000000): int

@@ -13,31 +13,34 @@ class InventoryService
 {
     public const BUCKETS = ['unclassified', 'growing', 'mother', 'ready'];
 
-    public function lock(): InventoryBalance
+    public function __construct(private readonly LocationService $locations) {}
+
+    public function lock(int $locationId): InventoryBalance
     {
-        return InventoryBalance::query()->lockForUpdate()->findOrFail(1);
+        return InventoryBalance::query()->where('location_id', $locationId)->lockForUpdate()->firstOrFail();
     }
 
-    public function reserved(?int $exceptOrder = null): int
+    public function reserved(int $locationId, ?int $exceptOrder = null): int
     {
-        return (int) Order::query()->where('status', 'confirmed')->when($exceptOrder !== null, fn ($query) => $query->where('id', '!=', $exceptOrder))->sum('plants_needed');
+        return (int) Order::query()->where('location_id', $locationId)->where('status', 'confirmed')->when($exceptOrder !== null, fn ($query) => $query->where('id', '!=', $exceptOrder))->sum('plants_needed');
     }
 
     /** @return array<string, int> */
-    public function snapshot(?InventoryBalance $balance = null): array
+    public function snapshot(int $locationId, ?InventoryBalance $balance = null): array
     {
-        $balance ??= InventoryBalance::findOrFail(1);
-        $reserved = $this->reserved();
+        $balance ??= InventoryBalance::where('location_id', $locationId)->firstOrFail();
+        $reserved = $this->reserved($locationId);
         $result = ['unclassified' => $balance->unclassified, 'growing' => $balance->growing, 'mother' => $balance->mother, 'ready' => $balance->ready];
 
-        return $result + ['reserved' => $reserved, 'available' => $balance->ready - $reserved, 'total' => array_sum($result)];
+        return $result + ['locationId' => $locationId, 'reserved' => $reserved, 'available' => $balance->ready - $reserved, 'total' => array_sum($result)];
     }
 
     /** @param array<string, mixed> $input */
     public function move(array $input, User $user): InventoryMovement
     {
         return DB::transaction(function () use ($input, $user): InventoryMovement {
-            $balance = $this->lock();
+            $location = $this->locations->resolve($input['locationId'] ?? null, true, true);
+            $balance = $this->lock($location->id);
             $type = $input['type'];
             $from = in_array($type, ['transfer', 'loss'], true) ? $input['from'] : null;
             $to = in_array($type, ['transfer', 'add'], true) ? $input['to'] : null;
@@ -46,9 +49,9 @@ class InventoryService
                 throw new BusinessRule('El origen y el destino deben ser diferentes.', 400);
             }
             if ($from !== null) {
-                $available = $from === 'ready' ? $balance->ready - $this->reserved() : $balance->{$from};
+                $available = $from === 'ready' ? $balance->ready - $this->reserved($location->id) : $balance->{$from};
                 if ($quantity > $available) {
-                    throw new BusinessRule('No hay suficientes plantas disponibles en ese grupo; las reservadas están comprometidas.');
+                    throw new BusinessRule('No hay suficientes existencias disponibles en ese grupo; las reservadas están comprometidas.');
                 }
                 $balance->{$from} -= $quantity;
             }
@@ -60,7 +63,7 @@ class InventoryService
             }
             $balance->save();
 
-            return InventoryMovement::create(['user_id' => $user->id, 'type' => $type, 'from_bucket' => $from, 'to_bucket' => $to, 'quantity' => $quantity, 'note' => $input['note'] ?? '']);
+            return InventoryMovement::create(['location_id' => $location->id, 'user_id' => $user->id, 'type' => $type, 'from_bucket' => $from, 'to_bucket' => $to, 'quantity' => $quantity, 'note' => $input['note'] ?? '']);
         }, 3);
     }
 }

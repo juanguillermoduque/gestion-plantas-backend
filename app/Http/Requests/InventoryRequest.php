@@ -16,6 +16,7 @@ class InventoryRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'locationId' => ['sometimes', 'integer', 'min:1', 'exists:locations,id'],
             'type' => ['required', Rule::in(['transfer', 'add', 'loss'])],
             'from' => ['required_if:type,transfer,loss', 'nullable', Rule::in(['unclassified', 'growing', 'mother', 'ready'])],
             'to' => ['required_if:type,transfer,add', 'nullable', Rule::in(['unclassified', 'growing', 'mother', 'ready'])],

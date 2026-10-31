@@ -10,6 +10,7 @@ class OrderRequest extends QuoteRequest
     public function rules(): array
     {
         return array_merge(parent::rules(), [
+            'locationId' => ['sometimes', 'integer', 'min:1', 'exists:locations,id'],
             'customerName' => ['required', 'string', 'max:160'],
             'phone' => ['sometimes', 'nullable', 'string', 'max:40'],
             'location' => ['sometimes', 'nullable', 'string', 'max:200'],
