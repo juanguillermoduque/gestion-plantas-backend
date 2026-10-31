@@ -2,13 +2,19 @@
 
 API Laravel 13 con PostgreSQL y sesiones Sanctum. Una instalación administra un negocio con varias sedes configurables. El frontend Angular se mantiene en el repositorio hermano `../frontend/`.
 
-Administra productos, componentes de costo, precios por cantidad, cotizaciones, inventario por etapa y sede, reservas, pedidos, pagos, devoluciones, gastos y personas autorizadas. Los pedidos conservan su copia de costos y precios; las reservas se protegen con transacciones y bloqueos de PostgreSQL por sede.
+Administra insumos, recetas de productos, precios por cantidad, cotizaciones, inventario por insumo, etapa y sede, reservas, pedidos, pagos, devoluciones, gastos y personas autorizadas. Los pedidos conservan su copia de recetas, costos y precios; las reservas se protegen con transacciones y bloqueos de PostgreSQL.
 
 En **Ajustes** se configuran nombre, actividad, ciudad, país, cobertura de entregas, formato regional, zona horaria, moneda y nombres de la unidad de inventario y sus etapas. Las sedes tienen dirección y datos de contacto propios; el catálogo y los usuarios se comparten dentro del negocio. Todos los usuarios activos pueden consultar sus sedes según su rol; no hay permisos individuales por sede.
 
-El inventario actual cuenta **una unidad base común**, distribuida entre sedes y etapas. Cada producto indica cuántas unidades base consume. Por ejemplo, un arreglo puede consumir tres plantas o un paquete tres piezas; un servicio puede consumir cero. Los componentes de costo no tienen existencias independientes: esta versión no sustituye un inventario de múltiples materias primas o SKU. Las cantidades de inventario son enteras.
+El catálogo de **Insumos** registra plantas, materas, abono, empaques u otros materiales por separado, con nombre, categoría, unidad, costo unitario y mínimo de inventario. Cada insumo físico tiene existencias propias por sede y etapa. Las cantidades admiten tres decimales; los costos unitarios, cuatro. Usa una unidad coherente por insumo: si el abono se registra en gramos, sus entradas y recetas también se expresan en gramos, sin conversiones automáticas entre gramos y kilogramos.
 
-Los importes se registran en **unidades enteras de una sola moneda**, sin centavos ni conversión de divisas. La moneda se elige antes de cargar productos o costos; no puede cambiarse mientras existan precios, pedidos, gastos o costos configurados. La zona horaria se usa para fechas operativas y cortes del resumen mensual; los timestamps se almacenan en UTC.
+Un producto se define con una **receta**: insumos y cantidades consumidas por unidad, más costo adicional unitario y tiempo de preparación. El costo se deriva del catálogo vigente. Por ejemplo, comprar 1.000 gramos por 12.000 COP implica 12 COP/gramo; consumir 150 gramos cuesta 1.800 COP. El asistente del frontend calcula costo del lote dividido entre cantidad; aplicar ese cálculo no registra una entrada ni un gasto.
+
+Los conceptos **no inventariables**, como publicidad o servicios, pueden formar parte del costo unitario de una receta sin reservar existencias. La publicidad específica de un pedido también puede registrarse en el cotizador. El mismo costo no debe cargarse en ambos lugares: la aplicación suma los conceptos expresamente registrados. Los materiales incluidos en una receta ya reducen el aporte de la venta; registrarlos de nuevo como gasto general vuelve a descontarlos.
+
+Confirmar un pedido reserva todos los insumos físicos de sus recetas en la sede elegida; entregarlo los descuenta y cancelarlo libera la reserva. Una cotización no reserva. El pedido conserva la receta y los costos usados aunque después se edite el producto o el catálogo. Los servicios pueden tener una receta vacía y no consumir inventario.
+
+Los precios de venta, pagos, gastos y totales se registran en **unidades enteras de una sola moneda**, sin centavos ni conversión de divisas. Los costos fraccionarios de insumos se acumulan antes de redondear el total. La moneda se elige antes de cargar insumos, productos o costos; no puede cambiarse mientras existan valores vinculados. La zona horaria se usa para fechas operativas y cortes del resumen mensual; los timestamps se almacenan en UTC.
 
 ## Desarrollo local
 
@@ -52,7 +58,7 @@ Para iniciar específicamente el negocio de suculentas, antes de registrar produ
 php artisan db:seed --class=ViveroSeeder
 ```
 
-Crea los dos productos y 250 plantas sin clasificar, con moneda COP, etapas de cultivo y tarifa de mano de obra inicial de 10.000 COP/hora. Los costos y precios son editables. Requiere un negocio vacío y moneda COP; rechaza mezclar esos datos con otro inventario. Repetirla cuando ambos productos ya existen no agrega existencias ni sobrescribe sus cambios. No se ejecuta automáticamente al desplegar.
+Crea los dos productos del ejemplo anterior y 250 plantas sin clasificar, con moneda COP, etapas de cultivo y tarifa de mano de obra inicial de 10.000 COP/hora. Se conserva como carga compatible con el inventario anterior: los productos muestran una receta pendiente de configurar. Desde Insumos registra los materiales y sus existencias reales, y convierte explícitamente cada producto a su receta. No se inventan saldos de materas o decoración. Requiere un negocio vacío y moneda COP; repetirla cuando ambos productos ya existen no agrega existencias ni sobrescribe sus cambios. No se ejecuta automáticamente al desplegar.
 
 La interfaz se abre en `http://localhost:4200`, siguiendo el README del frontend. `GET /api/health` comprueba la API y PostgreSQL; `/up` comprueba el arranque de Laravel. `artisan serve` es para desarrollo; el VPS utiliza PHP-FPM y Nginx.
 
@@ -60,11 +66,19 @@ La interfaz se abre en `http://localhost:4200`, siguiendo el README del frontend
 
 Angular solicita `GET /sanctum/csrf-cookie`, después `POST /api/login`, conserva la cookie y envía `X-XSRF-TOKEN`. El proxy de desarrollo mantiene las peticiones bajo `localhost:4200`. `SANCTUM_STATEFUL_DOMAINS` del ejemplo incluye los puertos 4200 y 8000. En producción se utiliza un solo dominio HTTPS. [Sanctum oficial](https://laravel.com/docs/13.x/sanctum).
 
-Las rutas `/api/state`, `/api/quote`, `/api/inventory`, `/api/orders` y pagos requieren una cuenta activa. Cambiar productos, ajustes, sedes y accesos requiere administrador. Los operadores pueden gestionar cotizaciones, pedidos, inventario y registrar gastos. `php artisan route:list --path=api` muestra el contrato completo.
+Las rutas `/api/state`, `/api/analytics`, `/api/quote`, `/api/inventory`, `/api/orders` y pagos requieren una cuenta activa. Cambiar insumos, productos, ajustes, sedes y accesos requiere administrador. Los operadores pueden gestionar cotizaciones, pedidos, inventario, informes y registrar gastos. `php artisan route:list --path=api` muestra el contrato completo.
 
-`GET /api/state?locationId=<id>` devuelve el inventario, movimientos, pedidos, gastos y resumen de esa sede, junto con `locations`, `locationId`, catálogo y ajustes globales. Las nuevas entradas de inventario, pedidos y gastos deben incluir `locationId`. Cada pedido conserva su sede; sus pagos, reservas y entregas se aplican a esa sede aunque se haya cambiado el filtro de la interfaz. Las sedes con historia se conservan y pueden desactivarse; esta versión no realiza traslados entre sedes.
+`GET /api/state?locationId=<id>` devuelve `supplies` (catálogo global), `balances` (saldos por insumo), movimientos, pedidos, gastos y resumen de esa sede, junto con `locations`, `locationId`, productos y ajustes globales. Las entradas de inventario incluyen `supplyId` y `locationId`; los pedidos y gastos incluyen `locationId`. Cada pedido conserva su sede y los requerimientos de insumos. Las sedes con historia se conservan y pueden desactivarse; esta versión no realiza traslados entre sedes.
 
-El contrato usa `stockUnitsPerUnit`, `stockUnitsNeeded` y `stockUnitsReserved`. Los nombres anteriores relacionados con plantas se aceptan temporalmente como alias para actualizar instalaciones existentes.
+Las recetas nuevas usan `components: [{supplyId, quantity}]` y `extraCost`. La cotización devuelve `requirements` con cantidades y costos por insumo. No se suman gramos, litros y unidades en una única cantidad física. Los campos anteriores `stock`, `stockUnitsPerUnit`, `stockUnitsNeeded` y sus alias se conservan para el recurso de inventario anterior; los flujos nuevos utilizan balances y requerimientos por insumo.
+
+## Informes y gráficas
+
+`GET /api/analytics?locationId=<id>&month=YYYY-MM` entrega seis meses de ventas, costos, aporte, gastos y resultado operativo, además de productos principales, distribución de costos, categorías de gastos y valoración estimada del inventario. Las ventas y los costos de venta se reconocen al entregar los pedidos, con sus snapshots; los pagos recibidos son un dato distinto.
+
+La venta por producto se presenta antes de descuentos globales y cobro de entrega. Su aporte directo resta receta y preparación, antes de transporte, publicidad por pedido, otros costos y gastos generales. Por eso esos valores no se presentan como la utilidad final del negocio. El resultado operativo mensual resta los gastos generales registrados una sola vez y se muestra antes de impuestos.
+
+La valoración del inventario usa cantidades actuales multiplicadas por el costo unitario actualmente registrado. Es una estimación a ese costo, sin FIFO ni promedio ponderado de compras. Los insumos no inventariables se excluyen. Los informes no constituyen un libro de caja completo ni registran compras o movimientos bancarios automáticamente.
 
 ## Pruebas PostgreSQL
 
@@ -89,7 +103,7 @@ Consulta **[deploy/README.md](deploy/README.md)** para Docker Compose, HTTPS en 
 
 Docker instala desde `composer.lock` sin dependencias de desarrollo y genera la caché de configuración al arrancar con las variables del servidor. La verificación local de PHP/PostgreSQL no equivale a haber ejecutado el contenedor o desplegado el VPS.
 
-Para actualizar una instalación anterior, respalda PostgreSQL, actualiza **ambos** repositorios y ejecuta las migraciones nuevas y `db:seed`. La migración asigna los datos existentes a la sede Principal; no reinicia el inventario ni reemplaza el catálogo. Consulta la guía de despliegue para los comandos completos. Los nombres de los repositorios se mantienen para conservar sus enlaces.
+Para actualizar una instalación anterior, respalda PostgreSQL, actualiza **ambos** repositorios y ejecuta las migraciones nuevas y `db:seed`. Las cantidades anteriores se conservan en un insumo especial de inventario anterior por sede, sin crear existencias ficticias para los materiales. Ese saldo puede elegirse explícitamente en una receta después de revisar qué insumo representa, su nombre, unidad y costo; no lo agregues de nuevo como una entrada. Los pedidos anteriores conservan importes y reservas; los productos anteriores siguen disponibles en modo compatible hasta que configures sus recetas. Esa conversión afecta pedidos nuevos, no los ya guardados. Consulta la guía de despliegue para los comandos completos. Los nombres de los repositorios se mantienen para conservar sus enlaces. La reversión automática de la migración de insumos se bloquea fuera del entorno de pruebas; utiliza una copia verificada para regresar de versión.
 
 Para otro negocio, usa una instalación independiente con su propio dominio, base de datos, `APP_KEY`, configuración de Compose y respaldos. Las sedes de una instalación pertenecen al mismo negocio.
 

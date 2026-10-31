@@ -17,10 +17,11 @@ class InventoryRequest extends FormRequest
     {
         return [
             'locationId' => ['sometimes', 'integer', 'min:1', 'exists:locations,id'],
+            'supplyId' => ['sometimes', 'integer', 'min:1', 'exists:supplies,id'],
             'type' => ['required', Rule::in(['transfer', 'add', 'loss'])],
             'from' => ['required_if:type,transfer,loss', 'nullable', Rule::in(['unclassified', 'growing', 'mother', 'ready'])],
             'to' => ['required_if:type,transfer,add', 'nullable', Rule::in(['unclassified', 'growing', 'mother', 'ready'])],
-            'quantity' => ['required', 'integer', 'min:1', 'max:1000000'],
+            'quantity' => ['required', 'numeric', 'min:0.001', 'max:1000000', 'decimal:0,3'],
             'note' => ['sometimes', 'nullable', 'string', 'max:500'],
         ];
     }

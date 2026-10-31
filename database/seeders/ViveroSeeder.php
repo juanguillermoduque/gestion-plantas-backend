@@ -9,6 +9,8 @@ use App\Models\Location;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Setting;
+use App\Models\Supply;
+use App\Models\SupplyCostChange;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use LogicException;
@@ -24,7 +26,7 @@ class ViveroSeeder extends Seeder
                 return;
             }
             $hasStock = InventoryBalance::query()->where(fn ($query) => $query->where('unclassified', '>', 0)->orWhere('growing', '>', 0)->orWhere('mother', '>', 0)->orWhere('ready', '>', 0))->exists();
-            if ($settings->currency !== 'COP' || Product::exists() || Order::exists() || Expense::exists() || InventoryMovement::exists() || $hasStock) {
+            if ($settings->currency !== 'COP' || Product::exists() || Order::exists() || Expense::exists() || InventoryMovement::exists() || Supply::where('is_legacy', false)->exists() || SupplyCostChange::exists() || $hasStock) {
                 throw new LogicException('La carga opcional de suculentas requiere un negocio vacío y moneda COP. No se modificaron sus registros.');
             }
             $settings->update(['business_type' => 'Cultivo y venta de plantas', 'hourly_rate' => 10000, 'inventory_unit' => 'Plantas', 'inventory_unit_singular' => 'Planta', 'bucket_labels' => ['unclassified' => 'Sin clasificar', 'growing' => 'En crecimiento', 'mother' => 'Reproducción', 'ready' => 'Listas para vender']]);

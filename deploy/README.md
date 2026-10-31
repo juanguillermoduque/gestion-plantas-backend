@@ -50,7 +50,7 @@ Ejecuta todos los comandos siguientes desde `backend/deploy/`. Los contextos de 
 - Sesiones y caché en PostgreSQL; almacenamiento de Laravel en un volumen persistente.
 - Única entrada del stack en `127.0.0.1:8080`; el proxy HTTPS del VPS atiende el dominio público.
 
-El catálogo, la configuración regional y las cuentas pertenecen al negocio. Los usuarios autorizados comparten acceso a sus sedes según su rol; las existencias, reservas, pedidos y gastos se gestionan por sede. El servidor conserva sus fechas en UTC y aplica la zona horaria configurada del negocio a las operaciones y vistas.
+El catálogo, las recetas de producto, la configuración regional y las cuentas pertenecen al negocio. Los usuarios autorizados comparten acceso a sus sedes según su rol; las existencias y reservas de cada insumo, los pedidos y los gastos se gestionan por sede. El servidor conserva sus fechas en UTC y aplica la zona horaria configurada del negocio a las operaciones y vistas.
 
 Para instalar otro negocio, utiliza otra carpeta y otro `.env`, con `COMPOSE_PROJECT_NAME`, `APP_KEY`, dominio, puerto y credenciales propios. Define el nombre Compose único en el archivo `.env` de cada instalación: los scripts de backup y recuperación también lo leen. Usar solo `-p` al iniciar y otro nombre en `.env` puede dirigir después esos scripts al proyecto equivocado.
 
@@ -96,9 +96,15 @@ curl -fsS http://127.0.0.1:8080/up
 
 El comando `app:create-admin` solicita los datos de la primera cuenta. Luego puedes crear cuentas para las personas autorizadas desde la aplicación, según las opciones implementadas.
 
-La carga normal (`DatabaseSeeder` → `BusinessSeeder`) deja **Mi negocio**, la sede **Principal**, inventario en cero y ningún producto. No crea ventas ni credenciales de demostración. Desde la aplicación configura nombre, actividad, ubicación, cobertura, moneda, formato regional, zona horaria y nombres de las etapas/unidad de inventario. Después crea las sedes y el catálogo e ingresa las existencias reales en la sede correcta.
+La carga normal (`DatabaseSeeder` → `BusinessSeeder`) deja **Mi negocio**, la sede **Principal**, inventario en cero y ningún producto. No crea ventas ni credenciales de demostración. Desde la aplicación configura nombre, actividad, ubicación, cobertura, moneda, formato regional, zona horaria y nombres de las etapas. Después crea las sedes y el catálogo de insumos, registra las existencias reales en su sede y configura las recetas de los productos.
 
-El inventario utiliza una unidad base compartida por negocio, con cantidades independientes por sede. Los componentes de un producto sirven para calcular su costo; esta versión no lleva existencias separadas de cada componente. Los importes son enteros en la moneda elegida, sin centavos. Configura esa moneda antes de cargar precios o historial: la aplicación bloquea cambiarla cuando esos registros ya existen.
+Cada insumo define su unidad de medida y su costo actual. El tipo **stock** representa un recurso físico con existencias independientes por sede y etapa; el tipo **expense** representa un costo de receta sin existencias ni reservas. Las cantidades admiten hasta **3 decimales** y los costos unitarios de insumos hasta **4 decimales**. Los precios de venta, gastos por pedido y totales se expresan en valores enteros de la moneda elegida. Define esa moneda antes de cargar costos o historial; la aplicación protege los importes existentes frente a un cambio de moneda.
+
+La receta indica cuánto consume cada producto de cada insumo. Al cotizar se utilizan los costos actuales; al guardar un pedido se conserva la copia de sus costos y requisitos. Confirmar reserva conjuntamente los recursos físicos necesarios en esa sede; entregar descuenta esos recursos y cancelar libera sus reservas. Los costos sin inventario participan en el cálculo económico y no requieren existencias físicas.
+
+Registra cada costo una sola vez: si una receta ya incluye publicidad o un servicio por unidad, no vuelvas a añadir el mismo importe como publicidad del pedido o gasto general. Los cargos de entrega, publicidad y otros costos del pedido corresponden a valores adicionales a su receta.
+
+La valoración de inventario utiliza los costos actuales registrados y es una estimación, no un cálculo FIFO ni un balance contable. Las gráficas de ventas y aporte utilizan los pedidos entregados y sus costos guardados; los cobros y devoluciones tienen su propia fecha y no equivalen a utilidad.
 
 ### Carga opcional del ejemplo de suculentas
 
@@ -108,7 +114,11 @@ Para explorar el caso original, ejecuta explícitamente este comando **solo en u
 docker compose run --rm backend php artisan db:seed --class=ViveroSeeder --force
 ```
 
-Esta carga agrega 250 plantas sin clasificar y los dos productos de suculentas, ajusta las etiquetas de inventario y establece $10.000 como supuesto de valor de la hora. Revisa costos, precios y existencias antes de utilizarla para operaciones reales. Si ambos productos de ejemplo ya existen, no los duplica ni modifica; si hay otros productos, movimientos, existencias, pedidos o gastos, rechaza la carga para conservar los registros. No se ejecuta automáticamente al arrancar ni forma parte de `db:seed` normal.
+Esta carga conserva el ejemplo compatible con el inventario anterior: agrega 250 plantas sin clasificar y los dos productos de suculentas con sus recetas por configurar, ajusta las etiquetas de inventario y establece $10.000 como supuesto de valor de la hora. No inventa existencias de materas ni de otros materiales. El recurso especial **Inventario anterior** conserva ese saldo; su costo de recurso comienza en cero porque el costo compuesto del producto no permite inferirlo. Los costos compuestos de ejemplo de los productos se conservan para el modo anterior.
+
+Revisa costos, precios y existencias antes de utilizarla para operaciones reales. Si sabes que el recurso anterior corresponde a plantas, puedes renombrarlo y fijar un costo conocido, o incluirlo explícitamente en una receta para aprovechar su saldo. No se trasladan cantidades entre insumos ni se interpretan sus nombres automáticamente. Evita registrar de nuevo esas mismas unidades como otra entrada física.
+
+Si ambos productos de ejemplo ya existen, la carga no los duplica ni modifica; si hay otros productos, movimientos, existencias, pedidos o gastos, la rechaza para conservar los registros. No se ejecuta automáticamente al arrancar ni forma parte de `db:seed` normal.
 
 ## Publicar con HTTPS en el VPS
 
@@ -205,7 +215,11 @@ docker compose up -d backend frontend
 docker compose ps
 ```
 
-Conserva `.env`, `APP_KEY`, `COMPOSE_PROJECT_NAME` y los volúmenes; no copies las variables de un negocio sobre otro. La migración de sedes asigna los registros existentes a Principal y conserva sus datos. `BusinessSeeder` completa la estructura que falte sin reemplazar configuración, catálogo ni existencias existentes. El ejemplo de suculentas permanece separado y no debe usarse como paso de actualización.
+Conserva `.env`, `APP_KEY`, `COMPOSE_PROJECT_NAME` y los volúmenes; no copies las variables de un negocio sobre otro. La migración de sedes asigna los registros existentes a Principal y conserva sus datos. La migración de insumos copia una sola vez los saldos anteriores de cada sede al recurso especial **Inventario anterior** y conserva la tabla original archivada; `supply_balances` pasa a ser la fuente de existencias.
+
+Los pedidos anteriores conservan sus importes y costos históricos. Sus reservas y entregas utilizan únicamente el recurso anterior que ya comprometían: convertir después un producto a una receta nueva no exige retroactivamente materas u otros insumos a esos pedidos. Los productos previos quedan identificados en modo anterior, con receta por configurar, sin deducir insumos a partir de nombres. Para pasar al control por receta, configura explícitamente sus recursos y revisa los saldos reales; no se duplica ni convierte stock automáticamente.
+
+`BusinessSeeder` completa la estructura que falte sin reemplazar configuración, catálogo ni existencias existentes. El ejemplo de suculentas permanece separado y no debe usarse como paso de actualización. Si necesitas recuperar una versión anterior después de usar el nuevo catálogo, utiliza una copia verificada y una versión compatible de la aplicación; no reviertas la migración de insumos sobre datos reales.
 
 Las migraciones de una actualización deben revisarse antes de ejecutarlas sobre los datos reales. Cambiar solo la contraseña de `.env` no cambia la contraseña de un usuario PostgreSQL ya creado.
 

@@ -165,7 +165,7 @@ class ViveroApiTest extends TestCase
 
     public function test_creates_product_with_automatic_id_when_the_form_sends_empty_code(): void
     {
-        $this->postJson('/api/products', ['id' => '', 'name' => 'Presentación de prueba', 'plantsPerUnit' => 1, 'basePrice' => 8000, 'minutes' => 2, 'components' => [['name' => 'Planta y presentación', 'quantity' => 1, 'unitCost' => 4000]], 'tiers' => [['minQty' => 1, 'price' => 8000]], 'active' => true])->assertCreated()->assertJsonPath('product.unitCost', 4000);
+        $this->postJson('/api/products', ['id' => '', 'name' => 'Presentación de prueba', 'inventoryMode' => 'bom', 'extraCost' => 4000, 'basePrice' => 8000, 'minutes' => 2, 'components' => [], 'tiers' => [['minQty' => 1, 'price' => 8000]], 'active' => true])->assertCreated()->assertJsonPath('product.unitCost', 4000);
         $this->assertDatabaseHas('products', ['name' => 'Presentación de prueba', 'unit_cost' => 4000]);
     }
 

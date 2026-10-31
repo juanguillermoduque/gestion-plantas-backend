@@ -15,6 +15,7 @@ class QuoteRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'locationId' => ['sometimes', 'integer', 'min:1', 'exists:locations,id'],
             'items' => ['required', 'array', 'min:1', 'max:30'],
             'items.*.productId' => ['required', 'string', 'max:80', 'distinct'],
             'items.*.quantity' => ['required', 'integer', 'min:1', 'max:100000'],

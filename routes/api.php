@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\ApiController;
 use Illuminate\Support\Facades\Route;
 
@@ -7,6 +8,7 @@ Route::get('/health', [ApiController::class, 'health'])->name('api.health');
 Route::middleware(['auth:sanctum', 'active'])->group(function (): void {
     Route::get('/me', [ApiController::class, 'me'])->name('api.me');
     Route::get('/state', [ApiController::class, 'state'])->name('api.state');
+    Route::get('/analytics', [AnalyticsController::class, 'index'])->name('api.analytics');
     Route::post('/quote', [ApiController::class, 'quote'])->name('api.quote');
     Route::post('/inventory', [ApiController::class, 'inventory'])->name('api.inventory');
     Route::post('/orders', [ApiController::class, 'createOrder'])->name('api.orders.create');
@@ -14,6 +16,8 @@ Route::middleware(['auth:sanctum', 'active'])->group(function (): void {
     Route::post('/orders/{order}/payments', [ApiController::class, 'payment'])->whereNumber('order')->name('api.orders.payment');
     Route::post('/expenses', [ApiController::class, 'createExpense'])->name('api.expenses.create');
     Route::middleware('admin')->group(function (): void {
+        Route::post('/supplies', [ApiController::class, 'createSupply'])->name('api.supplies.create');
+        Route::match(['put', 'patch'], '/supplies/{supply}', [ApiController::class, 'updateSupply'])->whereNumber('supply')->name('api.supplies.update');
         Route::post('/locations', [ApiController::class, 'createLocation'])->name('api.locations.create');
         Route::match(['put', 'patch'], '/locations/{location}', [ApiController::class, 'updateLocation'])->whereNumber('location')->name('api.locations.update');
         Route::post('/products', [ApiController::class, 'createProduct'])->name('api.products.create');

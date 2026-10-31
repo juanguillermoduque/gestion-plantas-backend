@@ -9,8 +9,8 @@ use App\Http\Requests\OrderRequest;
 use App\Http\Requests\ProductRequest;
 use App\Http\Requests\QuoteRequest;
 use App\Http\Requests\SettingsRequest;
+use App\Http\Requests\SupplyRequest;
 use App\Models\Expense;
-use App\Models\InventoryBalance;
 use App\Models\InventoryMovement;
 use App\Models\Location;
 use App\Models\Order;
@@ -18,12 +18,16 @@ use App\Models\Payment;
 use App\Models\Product;
 use App\Models\ProductCostChange;
 use App\Models\Setting;
+use App\Models\Supply;
+use App\Models\SupplyCostChange;
 use App\Models\User;
 use App\Services\ApiView;
 use App\Services\InventoryService;
 use App\Services\LocationService;
 use App\Services\OrderService;
 use App\Services\QuoteService;
+use App\Services\RecipeService;
+use App\Services\SupplyService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,7 +37,7 @@ use Illuminate\Validation\Rule;
 
 class ApiController extends Controller
 {
-    public function __construct(private readonly InventoryService $inventory, private readonly OrderService $orders, private readonly QuoteService $quotes, private readonly LocationService $locations) {}
+    public function __construct(private readonly InventoryService $inventory, private readonly OrderService $orders, private readonly QuoteService $quotes, private readonly LocationService $locations, private readonly RecipeService $recipes, private readonly SupplyService $supplies) {}
 
     public function health(): JsonResponse
     {
@@ -62,28 +66,39 @@ class ApiController extends Controller
         $contribution = (int) $delivered->sum(fn (Order $order): int => $order->totals['contribution']);
         $outstanding = (int) $orders->whereIn('status', ['confirmed', 'delivered'])->sum(fn (Order $order): int => $order->totals['total'] - (int) $order->payments->sum('amount'));
         $stock = $this->inventory->snapshot($location->id);
+        $balances = $this->inventory->balances($location->id);
+        $supplyCatalog = Supply::orderBy('id')->get();
+        $supplyById = $supplyCatalog->keyBy('id');
 
         return response()->json([
             'user' => ApiView::user($request->user()), 'settings' => ApiView::settings($settings) + ['currencyLocked' => $this->currencyLocked($settings)],
             'locationId' => $location->id,
             'locations' => Location::orderBy('id')->get()->map(fn (Location $branch): array => ApiView::location($branch))->all(),
-            'products' => Product::orderBy('id')->get()->map(fn (Product $product): array => ApiView::product($product))->all(),
+            'products' => $this->recipes->catalog(),
+            'supplies' => $supplyCatalog->map(fn (Supply $supply): array => ApiView::supply($supply))->all(),
+            'balances' => $balances,
+            'alerts' => array_values(array_filter($balances, fn (array $balance): bool => $balance['belowMinimum'])),
             'stock' => $stock,
-            'movements' => InventoryMovement::where('location_id', $location->id)->orderByDesc('id')->get()->map(fn (InventoryMovement $movement): array => ['id' => $movement->id, 'locationId' => $movement->location_id, 'type' => $movement->type, 'from' => $movement->from_bucket, 'to' => $movement->to_bucket, 'quantity' => $movement->quantity, 'note' => $movement->note, 'createdAt' => $movement->created_at->toISOString(), 'userName' => $userNames[$movement->user_id] ?? 'Sistema'])->all(),
+            'movements' => InventoryMovement::where('location_id', $location->id)->orderByDesc('id')->get()->map(fn (InventoryMovement $movement): array => ['id' => $movement->id, 'locationId' => $movement->location_id, 'supplyId' => $movement->supply_id, 'supplyName' => $supplyById->get($movement->supply_id)?->name ?? 'Insumo anterior', 'unit' => $supplyById->get($movement->supply_id)?->unit ?? '', 'type' => $movement->type, 'from' => $movement->from_bucket, 'to' => $movement->to_bucket, 'quantity' => $movement->quantity, 'note' => $movement->note, 'createdAt' => $movement->created_at->toISOString(), 'userName' => $userNames[$movement->user_id] ?? 'Sistema'])->all(),
             'orders' => $orders->map(fn (Order $order): array => ApiView::order($order))->all(),
             'expenses' => Expense::where('location_id', $location->id)->orderByDesc('date')->orderByDesc('id')->get()->map(fn (Expense $expense): array => ['id' => $expense->id, 'locationId' => $expense->location_id, 'date' => $expense->date->format('Y-m-d'), 'category' => $expense->category, 'amount' => $expense->amount, 'note' => $expense->note])->all(),
             'users' => $request->user()->role === 'admin' ? User::orderBy('id')->get()->map(fn (User $user): array => ApiView::user($user))->all() : [],
             'costHistory' => ProductCostChange::orderByDesc('id')->limit(300)->get()->map(fn (ProductCostChange $change): array => ['id' => $change->id, 'productId' => $change->product_id, 'before' => $change->before, 'after' => $change->after, 'createdAt' => $change->created_at->toISOString(), 'userName' => $userNames[$change->user_id] ?? 'Sistema'])->all(),
+            'supplyCostHistory' => SupplyCostChange::orderByDesc('id')->limit(300)->get()->map(fn (SupplyCostChange $change): array => ['id' => $change->id, 'supplyId' => $change->supply_id, 'before' => $change->before, 'after' => $change->after, 'createdAt' => $change->created_at->toISOString(), 'userName' => $userNames[$change->user_id] ?? 'Sistema'])->all(),
             'summary' => ['month' => $month, 'locationId' => $location->id, 'deliveredRevenue' => (int) $delivered->sum(fn (Order $order): int => $order->totals['total']), 'contribution' => $contribution, 'generalExpenses' => $generalExpenses, 'operatingResult' => $contribution - $generalExpenses, 'outstanding' => $outstanding, 'stockUnitsReserved' => $stock['reserved'], 'plantsReserved' => $stock['reserved'], 'cashReceived' => (int) Payment::query()->whereHas('order', fn ($query) => $query->where('location_id', $location->id))->where('date', '>=', $start->toDateString())->where('date', '<', $end->toDateString())->sum('amount')],
         ]);
     }
 
     public function quote(QuoteRequest $request): JsonResponse
     {
-        $products = Product::all()->map(fn (Product $product): array => ApiView::product($product))->all();
+        $products = $this->recipes->catalog();
         $settings = Setting::findOrFail(1);
+        $location = $this->locations->resolve($request->input('locationId'));
+        $quote = $this->quotes->calculate($request->validated(), $products, $settings->hourly_rate, ['currency' => $settings->currency, 'inventoryUnit' => $settings->inventory_unit, 'inventoryUnitSingular' => $settings->inventory_unit_singular]);
+        $availability = $this->inventory->availability($location->id, $quote['requirements']);
+        $availability['canConfirm'] = $availability['canConfirm'] && $location->active;
 
-        return response()->json(['quote' => $this->quotes->calculate($request->validated(), $products, $settings->hourly_rate, ['currency' => $settings->currency, 'inventoryUnit' => $settings->inventory_unit, 'inventoryUnitSingular' => $settings->inventory_unit_singular])]);
+        return response()->json(['quote' => $quote + $availability + ['locationId' => $location->id]]);
     }
 
     public function inventory(InventoryRequest $request): JsonResponse
@@ -115,7 +130,7 @@ class ApiController extends Controller
 
     public function createProduct(ProductRequest $request): JsonResponse
     {
-        $data = $this->productAttributes($request->validated());
+        $data = $request->validated();
         $id = $request->validated('id') ?? (string) Str::uuid();
         if (Product::whereKey($id)->exists()) {
             throw new BusinessRule('Ese código de producto ya existe.', 400);
@@ -123,7 +138,7 @@ class ApiController extends Controller
         $product = DB::transaction(function () use ($id, $data): Product {
             Setting::query()->lockForUpdate()->findOrFail(1);
 
-            return Product::create(['id' => $id] + $data);
+            return Product::create(['id' => $id] + $this->productAttributes($data));
         });
 
         return response()->json(['ok' => true, 'product' => ApiView::product($product)], 201);
@@ -131,11 +146,11 @@ class ApiController extends Controller
 
     public function updateProduct(ProductRequest $request, Product $product): JsonResponse
     {
-        $attributes = $this->productAttributes($request->validated());
-        $updated = DB::transaction(function () use ($product, $attributes, $request): Product {
+        $updated = DB::transaction(function () use ($product, $request): Product {
+            Setting::query()->lockForUpdate()->findOrFail(1);
             $locked = Product::query()->lockForUpdate()->findOrFail($product->id);
             $before = ApiView::product($locked);
-            $locked->update($attributes);
+            $locked->update($this->productAttributes($request->validated(), $locked));
             ProductCostChange::create(['product_id' => $locked->id, 'user_id' => $request->user()->id, 'before' => $before, 'after' => ApiView::product($locked)]);
 
             return $locked;
@@ -145,13 +160,9 @@ class ApiController extends Controller
     }
 
     /** @param array<string, mixed> $data @return array<string, mixed> */
-    private function productAttributes(array $data): array
+    private function productAttributes(array $data, ?Product $existing = null): array
     {
-        $components = array_map(fn (array $component): array => ['name' => trim($component['name']), 'quantity' => (float) $component['quantity'], 'unitCost' => (int) $component['unitCost']], $data['components']);
-        $unitCost = (int) round(array_sum(array_map(fn (array $component): float => $component['quantity'] * $component['unitCost'], $components)));
-        if ($unitCost > 1000000000) {
-            throw new BusinessRule('El costo total supera el límite permitido.', 400);
-        }
+        $recipe = $this->recipes->attributes($data, $existing);
         $tiers = array_map(fn (array $tier): array => ['minQty' => (int) $tier['minQty'], 'price' => (int) $tier['price']], $data['tiers']);
         usort($tiers, fn (array $left, array $right): int => $left['minQty'] <=> $right['minQty']);
         if ($tiers[0]['minQty'] !== 1) {
@@ -159,7 +170,7 @@ class ApiController extends Controller
         }
         $tiers[0]['price'] = (int) $data['basePrice'];
 
-        return ['name' => trim($data['name']), 'plants_per_unit' => (int) $data['stockUnitsPerUnit'], 'base_price' => (int) $data['basePrice'], 'unit_cost' => $unitCost, 'minutes' => (float) $data['minutes'], 'components' => $components, 'tiers' => $tiers, 'active' => $data['active'] ?? true];
+        return ['name' => trim($data['name']), 'base_price' => (int) $data['basePrice'], 'minutes' => (float) $data['minutes'], 'tiers' => $tiers, 'active' => $data['active'] ?? true] + $recipe;
     }
 
     public function settings(SettingsRequest $request): JsonResponse
@@ -209,7 +220,7 @@ class ApiController extends Controller
 
     private function currencyLocked(Setting $settings): bool
     {
-        return $settings->hourly_rate > 0 || $settings->monthly_fixed_costs > 0 || Product::exists() || Order::exists() || Expense::exists();
+        return $settings->hourly_rate > 0 || $settings->monthly_fixed_costs > 0 || Product::exists() || Order::exists() || Expense::exists() || $this->supplies->hasFinancialHistory();
     }
 
     public function createLocation(LocationRequest $request): JsonResponse
@@ -217,7 +228,7 @@ class ApiController extends Controller
         $data = $request->validated();
         $location = DB::transaction(function () use ($data): Location {
             $location = Location::create(['name' => trim($data['name']), 'address' => $data['address'] ?? '', 'city' => $data['city'] ?? '', 'country' => $data['country'] ?? '', 'phone' => $data['phone'] ?? '', 'active' => $data['active'] ?? true]);
-            InventoryBalance::create(['location_id' => $location->id, 'unclassified' => 0, 'growing' => 0, 'mother' => 0, 'ready' => 0]);
+            $this->supplies->createBalancesForLocation($location->id);
 
             return $location;
         }, 3);
@@ -253,6 +264,16 @@ class ApiController extends Controller
         $user = User::create($data + ['active' => true]);
 
         return response()->json(['ok' => true, 'user' => ApiView::user($user)], 201);
+    }
+
+    public function createSupply(SupplyRequest $request): JsonResponse
+    {
+        return response()->json(['ok' => true, 'supply' => ApiView::supply($this->supplies->create($request->validated(), $request->user()))], 201);
+    }
+
+    public function updateSupply(SupplyRequest $request, Supply $supply): JsonResponse
+    {
+        return response()->json(['ok' => true, 'supply' => ApiView::supply($this->supplies->update($supply, $request->validated(), $request->user()))]);
     }
 
     public function updateUser(Request $request, User $user): JsonResponse

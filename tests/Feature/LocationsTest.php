@@ -116,7 +116,7 @@ class LocationsTest extends TestCase
         $this->putJson('/api/settings', ['businessName' => 'Negocio', 'hourlyRate' => 1000, 'monthlyFixedCosts' => 0])->assertOk();
         $this->putJson('/api/settings', ['businessName' => 'Negocio', 'hourlyRate' => 1000, 'monthlyFixedCosts' => 0, 'currency' => 'USD'])->assertStatus(409);
         $this->putJson('/api/settings', ['businessName' => 'Negocio', 'hourlyRate' => 0, 'monthlyFixedCosts' => 0])->assertOk();
-        $this->postJson('/api/products', ['name' => 'Pieza', 'stockUnitsPerUnit' => 1, 'basePrice' => 5000, 'minutes' => 0, 'components' => [['name' => 'Material', 'quantity' => 1, 'unitCost' => 1000]], 'tiers' => [['minQty' => 1, 'price' => 5000]]])->assertCreated();
+        $this->postJson('/api/products', ['name' => 'Pieza', 'inventoryMode' => 'bom', 'extraCost' => 1000, 'basePrice' => 5000, 'minutes' => 0, 'components' => [], 'tiers' => [['minQty' => 1, 'price' => 5000]]])->assertCreated();
         $this->putJson('/api/settings', ['businessName' => 'Negocio', 'hourlyRate' => 0, 'monthlyFixedCosts' => 0, 'currency' => 'USD'])->assertStatus(409);
         $this->getJson('/api/state')->assertJsonPath('settings.currency', 'COP')->assertJsonPath('settings.currencyLocked', true);
     }
@@ -152,7 +152,7 @@ class LocationsTest extends TestCase
 
     public function test_services_can_be_delivered_without_consuming_inventory(): void
     {
-        $product = $this->postJson('/api/products', ['name' => 'Asesoría', 'stockUnitsPerUnit' => 0, 'basePrice' => 25000, 'minutes' => 30, 'components' => [['name' => 'Materiales', 'quantity' => 1, 'unitCost' => 0]], 'tiers' => [['minQty' => 1, 'price' => 25000]]])->assertCreated()->assertJsonPath('product.stockUnitsPerUnit', 0)->json('product');
+        $product = $this->postJson('/api/products', ['name' => 'Asesoría', 'inventoryMode' => 'bom', 'extraCost' => 0, 'basePrice' => 25000, 'minutes' => 30, 'components' => [], 'tiers' => [['minQty' => 1, 'price' => 25000]]])->assertCreated()->assertJsonPath('product.stockUnitsPerUnit', 0)->json('product');
         $order = $this->order($this->principal, ['items' => [['productId' => $product['id'], 'quantity' => 2]]]);
         $this->assertSame(0, $order['totals']['stockUnitsNeeded']);
         $this->patchJson('/api/orders/'.$order['id'], ['status' => 'delivered'])->assertOk();
@@ -174,13 +174,13 @@ class LocationsTest extends TestCase
     public function test_upgrade_repairs_a_legacy_balance_sequence_without_losing_stock(): void
     {
         $balance = InventoryBalance::where('location_id', $this->principal)->firstOrFail();
-        DB::table('inventory_balances')->where('id', $balance->id)->update(['id' => 1, 'ready' => 7]);
-        DB::statement("SELECT setval(pg_get_serial_sequence('inventory_balances', 'id'), 1, false)");
-        $migration = require database_path('migrations/2026_10_31_141022_allow_products_without_stock_consumption.php');
-        $migration->up();
+        DB::table('supply_balances')->where('id', $balance->id)->update(['id' => 1, 'ready' => 7]);
+        DB::statement("SELECT setval(pg_get_serial_sequence('supply_balances', 'id'), 1, false)");
+        $migration = require database_path('migrations/2026_10_31_143622_add_supplies_and_recipe_inventory.php');
+        $migration->repairBalanceSequence();
         $secondary = $this->secondLocation();
-        $this->assertDatabaseHas('inventory_balances', ['id' => 1, 'location_id' => $this->principal, 'ready' => 7]);
-        $this->assertDatabaseHas('inventory_balances', ['id' => 2, 'location_id' => $secondary, 'ready' => 0]);
+        $this->assertDatabaseHas('supply_balances', ['id' => 1, 'location_id' => $this->principal, 'ready' => 7]);
+        $this->assertDatabaseHas('supply_balances', ['id' => 2, 'location_id' => $secondary, 'ready' => 0]);
         $this->getJson('/api/state?locationId='.$secondary)->assertOk()->assertJsonPath('stock.total', 0);
     }
 }

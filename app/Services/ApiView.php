@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Setting;
+use App\Models\Supply;
 use App\Models\User;
 
 class ApiView
@@ -14,7 +15,13 @@ class ApiView
     /** @return array<string, mixed> */
     public static function product(Product $product): array
     {
-        return ['id' => $product->id, 'name' => $product->name, 'stockUnitsPerUnit' => $product->plants_per_unit, 'plantsPerUnit' => $product->plants_per_unit, 'unitCost' => $product->unit_cost, 'basePrice' => $product->base_price, 'minutes' => $product->minutes, 'components' => $product->components, 'tiers' => $product->tiers, 'active' => $product->active];
+        return app(RecipeService::class)->view($product);
+    }
+
+    /** @return array<string, mixed> */
+    public static function supply(Supply $supply): array
+    {
+        return ['id' => $supply->id, 'name' => $supply->name, 'category' => $supply->category, 'unit' => $supply->unit, 'kind' => $supply->kind, 'unitCost' => $supply->unit_cost, 'minStock' => $supply->min_stock, 'active' => $supply->active, 'isLegacy' => $supply->is_legacy];
     }
 
     /** @return array<string, mixed> */
@@ -58,6 +65,6 @@ class ApiView
         $paid = (int) $order->payments->sum('amount');
         $totals = self::quote($order->totals);
 
-        return ['id' => $order->id, 'code' => $order->code, 'locationId' => $order->location_id, 'customerName' => $order->customer_name, 'phone' => $order->phone, 'location' => $order->location, 'dueDate' => $order->due_date->format('Y-m-d'), 'source' => $order->source, 'status' => $order->status, 'notes' => $order->notes ?? '', 'items' => $totals['items'], 'totals' => $totals, 'paid' => $paid, 'balance' => $totals['total'] - $paid, 'payments' => $order->payments->map(fn (Payment $payment): array => ['id' => $payment->id, 'amount' => $payment->amount, 'date' => $payment->date->format('Y-m-d'), 'note' => $payment->note, 'createdAt' => $payment->created_at->toISOString()])->all(), 'createdAt' => $order->created_at->toISOString(), 'deliveredAt' => $order->delivered_at?->toISOString()];
+        return ['id' => $order->id, 'code' => $order->code, 'locationId' => $order->location_id, 'inventoryMode' => $order->inventory_mode, 'customerName' => $order->customer_name, 'phone' => $order->phone, 'location' => $order->location, 'dueDate' => $order->due_date->format('Y-m-d'), 'source' => $order->source, 'status' => $order->status, 'notes' => $order->notes ?? '', 'items' => $totals['items'], 'totals' => $totals, 'paid' => $paid, 'balance' => $totals['total'] - $paid, 'payments' => $order->payments->map(fn (Payment $payment): array => ['id' => $payment->id, 'amount' => $payment->amount, 'date' => $payment->date->format('Y-m-d'), 'note' => $payment->note, 'createdAt' => $payment->created_at->toISOString()])->all(), 'createdAt' => $order->created_at->toISOString(), 'deliveredAt' => $order->delivered_at?->toISOString()];
     }
 }

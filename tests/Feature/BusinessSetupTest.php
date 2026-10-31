@@ -7,6 +7,7 @@ use App\Models\InventoryMovement;
 use App\Models\Location;
 use App\Models\Product;
 use App\Models\Setting;
+use App\Models\Supply;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\ViveroSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -24,8 +25,8 @@ class BusinessSetupTest extends TestCase
         $this->assertDatabaseCount('locations', 1);
         $this->assertDatabaseCount('products', 0);
         $this->assertDatabaseCount('inventory_movements', 0);
-        $this->assertSame(0, InventoryBalance::sum('ready'));
-        $this->assertSame(0, InventoryBalance::sum('unclassified'));
+        $this->assertEquals(0, InventoryBalance::sum('ready'));
+        $this->assertEquals(0, InventoryBalance::sum('unclassified'));
 
         Setting::findOrFail(1)->update(['business_name' => 'Taller de cerámica', 'city' => 'Medellín']);
         $location = Location::firstOrFail();
@@ -35,7 +36,7 @@ class BusinessSetupTest extends TestCase
 
         $this->assertDatabaseHas('settings', ['business_name' => 'Taller de cerámica', 'city' => 'Medellín']);
         $this->assertDatabaseCount('locations', 1);
-        $this->assertDatabaseHas('inventory_balances', ['location_id' => $location->id, 'ready' => 12]);
+        $this->assertDatabaseHas('supply_balances', ['location_id' => $location->id, 'ready' => 12]);
     }
 
     public function test_optional_succulent_setup_is_idempotent_and_never_adds_duplicate_stock(): void
@@ -46,7 +47,7 @@ class BusinessSetupTest extends TestCase
         $this->seed(ViveroSeeder::class);
         $this->assertDatabaseCount('products', 2);
         $this->assertDatabaseCount('inventory_movements', 1);
-        $this->assertDatabaseHas('inventory_balances', ['location_id' => $location->id, 'unclassified' => 230, 'ready' => 20]);
+        $this->assertDatabaseHas('supply_balances', ['location_id' => $location->id, 'unclassified' => 230, 'ready' => 20]);
         $this->assertSame(3300, Product::findOrFail('individual')->unit_cost);
     }
 
@@ -65,6 +66,21 @@ class BusinessSetupTest extends TestCase
 
         $this->assertDatabaseCount('products', 0);
         $this->assertSame(0, InventoryMovement::count());
-        $this->assertDatabaseHas('inventory_balances', ['location_id' => $location->id, 'ready' => 7]);
+        $this->assertDatabaseHas('supply_balances', ['location_id' => $location->id, 'ready' => 7]);
+    }
+
+    public function test_optional_setup_does_not_overwrite_a_business_with_a_supply_catalog(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $supply = Supply::factory()->create(['name' => 'Material propio', 'unit_cost' => 200]);
+        try {
+            $this->seed(ViveroSeeder::class);
+            $this->fail('La carga no debe mezclarse con un catálogo de insumos existente.');
+        } catch (LogicException $exception) {
+            $this->assertStringContainsString('negocio vacío', $exception->getMessage());
+        }
+        $this->assertDatabaseCount('products', 0);
+        $this->assertDatabaseHas('settings', ['id' => 1, 'hourly_rate' => 0, 'business_type' => '']);
+        $this->assertDatabaseHas('supplies', ['id' => $supply->id, 'name' => 'Material propio', 'unit_cost' => 200]);
     }
 }
