@@ -2,6 +2,20 @@
 
 El backend Laravel y el frontend Angular son dos repositorios independientes. Esta carpeta vive dentro del repositorio backend y contiene la configuración que los reúne para el VPS Ubuntu.
 
+## Clonar los repositorios públicos en el VPS
+
+Desde una carpeta nueva del servidor:
+
+```sh
+mkdir -p ~/apps/gestion-plantas
+cd ~/apps/gestion-plantas
+git clone https://github.com/juanguillermoduque/gestion-plantas-backend.git backend
+git clone https://github.com/juanguillermoduque/gestion-plantas-frontend.git frontend
+cd backend/deploy
+```
+
+Después sigue los pasos de configuración e instalación de esta guía. Los dos repositorios deben conservar los nombres de carpeta `backend` y `frontend` para que los contextos de Docker Compose coincidan.
+
 ## Estructura esperada
 
 Coloca los repositorios como carpetas hermanas con estos nombres:
