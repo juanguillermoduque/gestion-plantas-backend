@@ -1,0 +1,6 @@
+# Añade este bloque a tu configuración existente; conserva los demás sitios.
+# Sustituye el dominio por el definitivo y coordina APP_URL/Sanctum en .env.
+plantas.tudominio.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8080
+}
